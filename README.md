@@ -1,7 +1,8 @@
 ## 📚 g2w – Git Repository to Wordlist
-g2w is a lightweight tool that crawls Git repositories (currently supports GitHub) and transforms the directory structure into a wordlist.
-Perfect for tasks like directory brute-forcing, pentests, or web application assessments!
 
+g2w is a lightweight tool that crawls Git repositories (currently supports GitHub) and transforms the directory structure into a wordlist.
+
+---
 ### ✨ Features
 - Automatically crawls public GitHub repositories
 - Detects branches and adjusts URL structure dynamically
@@ -9,17 +10,23 @@ Perfect for tasks like directory brute-forcing, pentests, or web application ass
 - Optional automatic URL-encoding for generated wordlists
 - Color-coded, readable terminal output
 - Verbose logging for better debugging and visibility
+
 ---
+
 ### ⚙️ Installation
 ```bash
 git clone https://github.com/OffSecVik/git2wordlist
 cd g2w
 pip install -r requirements.txt
 ```
+
 ---
+
 > **Note**:
 > Required libraries: beautifulsoup4, requests, lxml
+
 ---
+
 ### 🚀 Usage
 ````bash
 python g2w.py <repository_url> [options]
@@ -28,7 +35,9 @@ python g2w.py <repository_url> [options]
 ````bash
 python g2w.py https://github.com/rapid7/metasploit-framework -v -o metasploit_wordlist.txt
 ````
+
 ---
+
 ### 📋 Options
 | Option                 | Description                                                                         |
 |------------------------|-------------------------------------------------------------------------------------|
@@ -36,7 +45,9 @@ python g2w.py https://github.com/rapid7/metasploit-framework -v -o metasploit_wo
 | -o, --outfile          | Output file for the generated wordlist (if not provided, it will auto-generate one) |
 | -v, --verbose          | 	Enable verbose logging                                                             |
 | -a, --auto-url-encode	 | Automatically URL-encode paths in the output                                        |
+
 ---
+
 ### 💬 Example Output
 ```
 app/
