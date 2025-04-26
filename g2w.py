@@ -90,7 +90,7 @@ class GithubParser(RepoParser):
                 item = RepoItem(item_name, item_type, href, parent_directory)
                 self.repo_items.append(item)
 
-                self.log(f"[+] Found repository item of type {item_type}: {item_name}")
+                self.log(f"[+] Found repository item: {item.parent + item.name}")
                 self.write_result(item.parent + item.name)
 
                 ### INITIATE RECURSION FOR DIRECTORIES
