@@ -13,6 +13,14 @@ class RepoItem:
         self.href = href_
         self.parent = parent
 
+def log(log_message):
+    if "[+]" in log_message:
+        print(f"\033[92m{log_message[:3]}\033[0m{log_message[3:]}")
+    elif "[-]" in log_message:
+        print(f"\033[91m{log_message[:3]}\033[0m{log_message[3:]}")
+    else:
+        print(log_message)
+
 class RepoParser(ABC):
     def __init__(self, url, outfile, verbose, auto_encode):
         self.repo_items = []
@@ -26,14 +34,9 @@ class RepoParser(ABC):
     def parseRepo(self, url, parent_directory):
         pass
 
-    def log(self, log_message):
+    def log_verbose(self, log_message):
         if self.verbose:
-            if "[+]" in log_message:
-                print(f"\033[92m{log_message[:3]}\033[0m{log_message[3:]}")
-            elif "[-]" in log_message:
-                print(f"\033[91m{log_message[:3]}\033[0m{log_message[3:]}")
-            else:
-                print(log_message)
+            log(log_message)
 
     def write_result(self, repository_item):
         if self.auto_encode:
@@ -52,13 +55,13 @@ class GithubParser(RepoParser):
         button = soup.find("button", attrs={"id": "branch-picker-repos-header-ref-selector"})
         button_div = button.find("div", attrs={"class": "ref-selector-button-text-container"})
         branch_name = str(button_div.span.text).strip()
-        self.log(f"[+] Found branch: {branch_name}")
+        self.log_verbose(f"[+] Found branch: {branch_name}")
         return branch_name
 
     def appendTreeAndBranchName(self, url, branch_name):
         ### MAKE NEW URL WITH COMPLETE BRANCH NAME
         new_url = url.rstrip("/") + "/tree/" + branch_name
-        self.log(f"[+] Now crawling: {new_url}")
+        self.log_verbose(f"[+] Now crawling: {new_url}")
         return new_url
 
     def needsBranchName(self, url):
@@ -67,13 +70,13 @@ class GithubParser(RepoParser):
     def parseRepo(self, url, parent_directory):
         response = self.session.get(url)
         if response.status_code == 404:
-            self.log(f"[-] Invalid status code for {url}: {response.status_code}")
+            self.log_verbose(f"[-] Invalid status code for {url}: {response.status_code}")
             return
 
         soup = BeautifulSoup(response.text, 'lxml')
         table = soup.find("table", attrs={"aria-labelledby": "folders-and-files"})
         if not table:
-            self.log(f"[-] Failed to find repository table on url: {url}")
+            self.log_verbose(f"[-] Failed to find repository table on url: {url}")
             return
 
         tbody = table.find("tbody")
@@ -95,7 +98,7 @@ class GithubParser(RepoParser):
                 item = RepoItem(item_name, item_type, href, parent_directory)
                 self.repo_items.append(item)
 
-                self.log(f"[+] Found repository item: {item.parent + item.name}")
+                self.log_verbose(f"[+] Found repository item: {item.parent + item.name}")
                 self.write_result(item.parent + item.name)
 
                 ### INITIATE RECURSION FOR DIRECTORIES
@@ -110,24 +113,24 @@ class GithubParser(RepoParser):
                 print(item.parent + item.name)
 
     def site_parsable(self):
-        self.log(f"[+] Testing if site is parsable")
+        self.log_verbose(f"[+] Testing if site is parsable")
         try:
             response = self.session.get(self.url)
         except Exception as e:
-            self.log(f"[-] Encountered {str(e)}")
+            self.log_verbose(f"[-] Encountered {str(e)}")
             return False
 
         if not ((code := response.status_code) == 200):
-            self.log(f"[-] Error: Site responded with status code {code}. Check your arguments?")
+            self.log_verbose(f"[-] Error: Site responded with status code {code}. Check your arguments?")
             return False
 
-        self.log(f"[+] Site is parsable, proceeding...")
+        self.log_verbose(f"[+] Site is parsable, proceeding...")
         return True
 
     def parse_repo(self):
         if not self.site_parsable():
             return
-        self.log(f"[+] Parsing site: {self.url}")
+        log(f"[+] Parsing site: {self.url}")
         url = self.url
         if self.needsBranchName(url):
             branch_name = self.getBranchName(url)
@@ -142,32 +145,36 @@ def determineParser(args):
     auto_encode = args.auto_url_encode
     if url.startswith("https://github.com"):
         repo_parser = GithubParser(url, outfile, verbose, auto_encode)
-        repo_parser.log(f"[+] Detected github url: Setting parsing mode to github")
+        repo_parser.log_verbose(f"[+] Detected github url: Setting parsing mode to github")
         return repo_parser
     return None
 
 def main():
-    repo_parser = argparse.ArgumentParser(
-        prog="g2w",
-        description="Parses a git repository and transforms the directory structure into a wordlist.\nCurrently only supports github."
-    )
-    repo_parser.add_argument('url')
-    repo_parser.add_argument('-o', '--outfile')
-    repo_parser.add_argument('-v', '--verbose', action='store_true')
-    repo_parser.add_argument('-a', '--auto-url-encode', action='store_true')
+    try:
+        repo_parser = argparse.ArgumentParser(
+            prog="g2w",
+            description="Parses a git repository and transforms the directory structure into a wordlist.\nCurrently only supports github."
+        )
+        repo_parser.add_argument('url')
+        repo_parser.add_argument('-o', '--outfile')
+        repo_parser.add_argument('-v', '--verbose', action='store_true')
+        repo_parser.add_argument('-a', '--auto-url-encode', action='store_true')
 
-    args = repo_parser.parse_args()
+        args = repo_parser.parse_args()
 
-    if args.outfile is None:
-        now = datetime.now()
-        timestamp = now.strftime("%Y-%m-%d_%H-%M-%S")
-        args.outfile = f"g2w_{timestamp}.txt"
+        if args.outfile is None:
+            now = datetime.now()
+            timestamp = now.strftime("%Y-%m-%d_%H-%M-%S")
+            args.outfile = f"g2w_{timestamp}.txt"
 
-    if repo_parser := determineParser(args):
-        repo_parser.parse_repo()
-    else:
-        print("Failed to determine version control system")
-
+        if repo_parser := determineParser(args):
+            repo_parser.parse_repo()
+            log(f"[+] Created wordlist at {args.outfile}")
+            repo_parser.log_verbose(f"[+] Job finished. Exiting...")
+        else:
+            log("[-] Failed to determine version control system")
+    except KeyboardInterrupt:
+        log("[+] Received keyboard interrupt, exiting...")
 
 if __name__ == "__main__":
     main()
