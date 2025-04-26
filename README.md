@@ -20,8 +20,6 @@ cd g2w
 pip install -r requirements.txt
 ```
 
----
-
 > **Note**:
 > Required libraries: beautifulsoup4, requests, lxml
 
