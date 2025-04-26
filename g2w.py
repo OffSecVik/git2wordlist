@@ -111,10 +111,16 @@ class GithubParser(RepoParser):
 
     def site_parsable(self):
         self.log(f"[+] Testing if site is parsable")
-        response = self.session.get(self.url)
+        try:
+            response = self.session.get(self.url)
+        except Exception as e:
+            self.log(f"[-] Encountered {str(e)}")
+            return False
+
         if not ((code := response.status_code) == 200):
             self.log(f"[-] Error: Site responded with status code {code}. Check your arguments?")
             return False
+
         self.log(f"[+] Site is parsable, proceeding...")
         return True
 
