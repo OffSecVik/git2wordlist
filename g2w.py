@@ -28,7 +28,12 @@ class RepoParser(ABC):
 
     def log(self, log_message):
         if self.verbose:
-            print(log_message)
+            if "[+]" in log_message:
+                print(f"\033[92m{log_message[:3]}\033[0m{log_message[3:]}")
+            elif "[-]" in log_message:
+                print(f"\033[91m{log_message[:3]}\033[0m{log_message[3:]}")
+            else:
+                print(log_message)
 
     def write_result(self, repository_item):
         if self.auto_encode:
@@ -104,7 +109,18 @@ class GithubParser(RepoParser):
             if item is not None:
                 print(item.parent + item.name)
 
+    def site_parsable(self):
+        self.log(f"[+] Testing if site is parsable")
+        response = self.session.get(self.url)
+        if not ((code := response.status_code) == 200):
+            self.log(f"[-] Error: Site responded with status code {code}. Check your arguments?")
+            return False
+        self.log(f"[+] Site is parsable, proceeding...")
+        return True
+
     def parse_repo(self):
+        if not self.site_parsable():
+            return
         self.log(f"[+] Parsing site: {self.url}")
         url = self.url
         if self.needsBranchName(url):
@@ -113,35 +129,36 @@ class GithubParser(RepoParser):
         self.parseRepo(url, "")
         # self.print_repo_items()
 
-
 def determineParser(args):
     url = args.url
     verbose = args.verbose
     outfile = args.outfile
     auto_encode = args.auto_url_encode
     if url.startswith("https://github.com"):
-        return GithubParser(url, outfile, verbose, auto_encode)
+        repo_parser = GithubParser(url, outfile, verbose, auto_encode)
+        repo_parser.log(f"[+] Detected github url: Setting parsing mode to github")
+        return repo_parser
     return None
 
 def main():
-    parser = argparse.ArgumentParser(
+    repo_parser = argparse.ArgumentParser(
         prog="g2w",
         description="Parses a git repository and transforms the directory structure into a wordlist.\nCurrently only supports github."
     )
-    parser.add_argument('url')
-    parser.add_argument('-o', '--outfile')
-    parser.add_argument('-v', '--verbose', action='store_true')
-    parser.add_argument('-a', '--auto-url-encode', action='store_true')
+    repo_parser.add_argument('url')
+    repo_parser.add_argument('-o', '--outfile')
+    repo_parser.add_argument('-v', '--verbose', action='store_true')
+    repo_parser.add_argument('-a', '--auto-url-encode', action='store_true')
 
-    args = parser.parse_args()
+    args = repo_parser.parse_args()
 
     if args.outfile is None:
         now = datetime.now()
         timestamp = now.strftime("%Y-%m-%d_%H-%M-%S")
         args.outfile = f"g2w_{timestamp}.txt"
 
-    if parser := determineParser(args):
-        parser.parse_repo()
+    if repo_parser := determineParser(args):
+        repo_parser.parse_repo()
     else:
         print("Failed to determine version control system")
 
