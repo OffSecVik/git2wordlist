@@ -1,10 +1,11 @@
 from abc import abstractmethod, ABC
 
-from bs4 import BeautifulSoup
 import requests
 import argparse
 from datetime import datetime
 from urllib.parse import quote
+import json
+import os
 
 class RepoItem:
     def __init__(self, name, type_, href_, parent):
@@ -22,13 +23,14 @@ def log(log_message):
         print(log_message)
 
 class RepoParser(ABC):
-    def __init__(self, url, outfile, verbose, auto_encode):
+    def __init__(self, url, outfile, verbose, auto_encode, branch):
         self.repo_items = []
         self.session = requests.session()
         self.url = url
         self.outfile = outfile
         self.verbose = verbose
         self.auto_encode = auto_encode
+        self.branch = branch
 
     @abstractmethod
     def parseRepo(self, url, parent_directory):
@@ -45,72 +47,30 @@ class RepoParser(ABC):
             file.write(repository_item + "\n")
 
 class GithubParser(RepoParser):
-    def __init__(self, url, outfile, verbose, auto_encode):
-        super().__init__(url, outfile, verbose, auto_encode)
+    def __init__(self, url, outfile, verbose, auto_encode, branch):
+        super().__init__(url, outfile, verbose, auto_encode, branch)
 
-    def getBranchName(self, repoUrl):
-        response = self.session.get(repoUrl)
-        soup = BeautifulSoup(response.text, 'lxml')
-        ### GET BRANCH NAME
-        button = soup.find("button", attrs={"id": "branch-picker-repos-header-ref-selector"})
-        button_div = button.find("div", attrs={"class": "ref-selector-button-text-container"})
-        branch_name = str(button_div.span.text).strip()
-        self.log_verbose(f"[+] Found branch: {branch_name}")
-        return branch_name
+    def rate_limited(self, response):
+        if response.status_code == 403:
+            try:
+                data = response.json()
+                if "API rate limit exceeded" in data.get("message", ""):
+                    log("[-] API rate limit exceeded. Use a GitHub token to authenticate.")
+                    return True
+            except Exception:
+                pass
+        return False
 
-    def appendTreeAndBranchName(self, url, branch_name):
-        ### MAKE NEW URL WITH COMPLETE BRANCH NAME
-        new_url = url.rstrip("/") + "/tree/" + branch_name
-        self.log_verbose(f"[+] Now crawling: {new_url}")
-        return new_url
-
-    def needsBranchName(self, url):
-        return not "/tree" in url
-
-    def parseRepo(self, url, parent_directory):
-        response = self.session.get(url)
-        if response.status_code == 404:
-            self.log_verbose(f"[-] Invalid status code for {url}: {response.status_code}")
+    def parse_api(self, api_url, parent):
+        response = requests.get(api_url)
+        if self.rate_limited(response):
             return
-
-        soup = BeautifulSoup(response.text, 'lxml')
-        table = soup.find("table", attrs={"aria-labelledby": "folders-and-files"})
-        if not table:
-            self.log_verbose(f"[-] Failed to find repository table on url: {url}")
-            return
-
-        tbody = table.find("tbody")
-        if not tbody:
-            return
-
-        trows = tbody.find_all("tr")
-        for tr in trows:
-            if a := tr.find("a", attrs={"aria-label": True}):
-                item_info = a.attrs['aria-label'].split(',')
-                if len(item_info) < 2:
-                    continue
-
-                href = a.attrs['href']
-                item_name = item_info[0]
-                item_type = item_info[1].strip()
-                if item_type == "(Directory)":
-                    item_name += "/"
-                item = RepoItem(item_name, item_type, href, parent_directory)
-                self.repo_items.append(item)
-
-                self.log_verbose(f"[+] Found repository item: {item.parent + item.name}")
-                self.write_result(item.parent + item.name)
-
-                ### INITIATE RECURSION FOR DIRECTORIES
-                if item.type == "(Directory)":
-                    new_url = url.rstrip("/") + "/" + item.name
-                    new_parent = parent_directory + item.name
-                    self.parseRepo(new_url, new_parent)
-
-    def print_repo_items(self):
-        for item in self.repo_items:
-            if item is not None:
-                print(item.parent + item.name)
+        repo_items = json.loads(response.text)
+        for item in repo_items:
+            added_slash = "/" if item['type'] == 'dir' else ""
+            self.write_result(parent + item['name'] + added_slash)
+            if item['type'] == 'dir':
+                self.parse_api(item['_links']['self'], f"{parent}{item['name']}/")
 
     def site_parsable(self):
         self.log_verbose(f"[+] Testing if site is parsable")
@@ -127,24 +87,26 @@ class GithubParser(RepoParser):
         self.log_verbose(f"[+] Site is parsable, proceeding...")
         return True
 
+    def get_api_url(self, url, branch):
+        repo = url.strip("https://gibhut.com/")
+        return f"https://api.github.com/repos/{repo}/contents/{branch}"
+
     def parse_repo(self):
         if not self.site_parsable():
             return
-        log(f"[+] Parsing site: {self.url}")
-        url = self.url
-        if self.needsBranchName(url):
-            branch_name = self.getBranchName(url)
-            url = self.appendTreeAndBranchName(url, branch_name)
-        self.parseRepo(url, "")
-        # self.print_repo_items()
+        branch = self.branch
+        api_url = self.get_api_url(self.url, branch)
+        log(f"[+] Parsing api: {api_url}")
+        self.parse_api(api_url, "")
 
 def determineParser(args):
     url = args.url
     verbose = args.verbose
     outfile = args.outfile
     auto_encode = args.auto_url_encode
+    branch = args.branch if args.branch == "" else f"?ref={args.branch}"
     if url.startswith("https://github.com"):
-        repo_parser = GithubParser(url, outfile, verbose, auto_encode)
+        repo_parser = GithubParser(url, outfile, verbose, auto_encode, branch)
         repo_parser.log_verbose(f"[+] Detected github url: Setting parsing mode to github")
         return repo_parser
     return None
@@ -159,6 +121,7 @@ def main():
         repo_parser.add_argument('-o', '--outfile')
         repo_parser.add_argument('-v', '--verbose', action='store_true')
         repo_parser.add_argument('-a', '--auto-url-encode', action='store_true')
+        repo_parser.add_argument('-b', '--branch', default="")
 
         args = repo_parser.parse_args()
 
@@ -169,7 +132,10 @@ def main():
 
         if repo_parser := determineParser(args):
             repo_parser.parse_repo()
-            log(f"[+] Created wordlist at {args.outfile}")
+            if os.path.exists(args.outfile) and os.path.getsize(args.outfile) > 0:
+                log(f"[+] Created wordlist at {args.outfile}")
+            else:
+                log("[-] Parsing failed or empty. No wordlist created.")
             repo_parser.log_verbose(f"[+] Job finished. Exiting...")
         else:
             log("[-] Failed to determine version control system")
